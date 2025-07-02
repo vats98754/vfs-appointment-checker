@@ -1,0 +1,2 @@
+wheel==0.45.1
+playwright==1.53.0

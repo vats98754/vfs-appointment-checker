@@ -1,0 +1,32 @@
+name: Daily VFS Appointment Check
+
+on:
+  schedule:
+    - cron: "10 13 * * *"  # Runs at 19:10 Bangladesh time (cron uses UTC)
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Playwright
+      run: |
+        pip install playwright
+        playwright install --with-deps
+
+    - name: Run script
+      env:
+        VFS_EMAIL: ${{ secrets.VFS_EMAIL }}
+        VFS_PASSWORD: ${{ secrets.VFS_PASSWORD }}
+        EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+        EMAIL_SENDER_PASS: ${{ secrets.EMAIL_SENDER_PASS }}
+        EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+      run: python check_vfs.py
