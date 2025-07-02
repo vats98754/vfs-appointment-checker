@@ -3,6 +3,11 @@ import smtplib
 from email.message import EmailMessage
 from playwright.sync_api import sync_playwright
 
+# for local development, load environment variables from .env file
+# from dotenv import load_dotenv
+# load_dotenv()
+
+
 VFS_EMAIL = os.environ["VFS_EMAIL"]
 VFS_PASSWORD = os.environ["VFS_PASSWORD"]
 EMAIL_SENDER = os.environ["EMAIL_SENDER"]
