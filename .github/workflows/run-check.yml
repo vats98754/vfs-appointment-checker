@@ -30,3 +30,10 @@ jobs:
         EMAIL_SENDER_PASS: ${{ secrets.EMAIL_SENDER_PASS }}
         EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
       run: python check_vfs.py
+
+    - name: Upload screenshot
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: login-debug
+        path: login_page.png

@@ -28,11 +28,20 @@ def main():
 
         # Login
         page.goto("https://visa.vfsglobal.com/aus/en/ind/login")
+
+        # Wait for login form to appear
+        page.wait_for_selector('input[name="email"]', timeout=60000)
+        page.screenshot(path="login_page.png", full_page=True)
+
+        # Fill in login details
         page.fill('input[name="email"]', VFS_EMAIL)
         page.fill('input[name="password"]', VFS_PASSWORD)
+
+        # Wait for Sign In button then click it
+        page.wait_for_selector('button:has-text("Sign In")', timeout=60000)
         page.click('button:has-text("Sign In")')
 
-        page.wait_for_url("**/dashboard", timeout=20000)
+        page.wait_for_url("**/dashboard", timeout=60000)
 
         # Navigate to application detail page
         page.goto("https://visa.vfsglobal.com/aus/en/ind/application-detail")
