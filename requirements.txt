@@ -1,3 +1,9 @@
 wheel==0.45.1
 playwright==1.53.0
 python-dotenv==1.0.0
+quart
+asyncio
+argparse
+patchright
+camoufox[geoip]
+requests

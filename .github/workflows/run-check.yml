@@ -17,10 +17,18 @@ jobs:
       with:
         python-version: '3.10'
 
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
     - name: Install Playwright
       run: |
         pip install playwright
         playwright install --with-deps
+
+    - name: Install Patchright browsers
+      run: |
+        python -m patchright install chromium
 
     - name: Run script
       env:
@@ -31,9 +39,10 @@ jobs:
         EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
       run: python check_vfs.py
 
-    - name: Upload screenshot
+    - name: Upload login screenshots
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: login-debug
-        path: login_page.png
+        path: login_attempt_*.png
+
