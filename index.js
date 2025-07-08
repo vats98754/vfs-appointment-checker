@@ -251,6 +251,13 @@ async function main() {
     const isCI = process.env.CI === 'true';
     console.log(`🖥️ Running in ${isCI ? 'CI (headless)' : 'local (visible)'} mode`);
     
+    // Log environment info for debugging
+    console.log('🔍 Environment info:');
+    console.log(`- Node version: ${process.version}`);
+    console.log(`- Platform: ${process.platform}`);
+    console.log(`- Architecture: ${process.arch}`);
+    console.log(`- Memory: ${Math.round(process.memoryUsage().heapTotal / 1024 / 1024)}MB`);
+    
     let browser, page;
     
     try {
@@ -258,7 +265,13 @@ async function main() {
         
         // Retry browser connection with exponential backoff
         let connectionAttempts = 0;
-        const maxConnectionAttempts = 3;
+        const maxConnectionAttempts = 5;  // Increased for CI reliability
+        
+        // Add initial delay in CI to let system settle
+        if (isCI) {
+            console.log('⏳ CI detected - waiting for system to settle...');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        }
         
         while (connectionAttempts < maxConnectionAttempts) {
             try {
@@ -266,7 +279,7 @@ async function main() {
                 console.log(`🔄 Browser connection attempt ${connectionAttempts}/${maxConnectionAttempts}...`);
                 
                 const connection = await connect({
-                    headless: isCI,  // Run headless in CI, visible locally
+                    headless: isCI ? 'new' : false,  // Use new headless mode in CI, visible locally
                     args: [
                         "--disable-blink-features=AutomationControlled",
                         "--no-sandbox",
@@ -275,13 +288,42 @@ async function main() {
                         "--disable-accelerated-2d-canvas",
                         "--no-first-run",
                         "--no-zygote",
-                        "--single-process", // This can help in CI environments
-                        "--disable-gpu"
+                        "--disable-gpu",
+                        "--disable-gpu-sandbox",
+                        "--disable-software-rasterizer",
+                        "--disable-background-timer-throttling",
+                        "--disable-backgrounding-occluded-windows",
+                        "--disable-renderer-backgrounding",
+                        "--disable-features=TranslateUI",
+                        "--disable-ipc-flooding-protection",
+                        "--disable-extensions",
+                        "--disable-default-apps",
+                        "--disable-sync",
+                        "--disable-translate",
+                        "--hide-scrollbars",
+                        "--mute-audio",
+                        "--no-default-browser-check",
+                        "--no-pings",
+                        "--disable-web-security",
+                        "--disable-features=VizDisplayCompositor",
+                        ...(isCI ? [
+                            "--single-process",
+                            "--memory-pressure-off",
+                            "--max_old_space_size=4096"
+                        ] : [])
                     ],
                     customConfig: {},
                     turnstile: true,
-                    connectOption: {},
-                    disableXvfb: false, // Allow Xvfb in CI
+                    connectOption: {
+                        timeout: 120000,  // Increase timeout for CI
+                        ...(isCI ? {
+                            defaultViewport: {
+                                width: 1920,
+                                height: 1080
+                            }
+                        } : {})
+                    },
+                    disableXvfb: false,
                     ignoreAllFlags: false
                 });
                 
@@ -294,12 +336,43 @@ async function main() {
             } catch (error) {
                 console.log(`❌ Browser connection attempt ${connectionAttempts} failed:`, error.message);
                 
+                // Try a simplified approach on the last attempt for CI
+                if (connectionAttempts === maxConnectionAttempts && isCI) {
+                    console.log('🔄 Trying simplified CI configuration as final attempt...');
+                    try {
+                        const connection = await connect({
+                            headless: 'new',
+                            args: [
+                                "--no-sandbox",
+                                "--disable-setuid-sandbox",
+                                "--disable-dev-shm-usage",
+                                "--disable-gpu",
+                                "--single-process"
+                            ],
+                            customConfig: {},
+                            turnstile: false,  // Disable turnstile for this attempt
+                            connectOption: {
+                                timeout: 60000
+                            },
+                            disableXvfb: false,
+                            ignoreAllFlags: false
+                        });
+                        
+                        browser = connection.browser;
+                        page = connection.page;
+                        console.log('✅ Browser connection established with simplified config');
+                        break;
+                    } catch (fallbackError) {
+                        console.log('❌ Simplified configuration also failed:', fallbackError.message);
+                    }
+                }
+                
                 if (connectionAttempts >= maxConnectionAttempts) {
                     throw new Error(`Failed to establish browser connection after ${maxConnectionAttempts} attempts: ${error.message}`);
                 }
                 
                 // Wait before retry with exponential backoff
-                const waitTime = Math.pow(2, connectionAttempts) * 1000;
+                const waitTime = Math.min(Math.pow(2, connectionAttempts) * 1000, 10000); // Cap at 10 seconds
                 console.log(`⏳ Waiting ${waitTime}ms before retry...`);
                 await new Promise(resolve => setTimeout(resolve, waitTime));
             }
