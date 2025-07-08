@@ -2,3 +2,4 @@ __pycache__/
 .env
 venv/
 Turnstile-Solver/
+node_modules/
