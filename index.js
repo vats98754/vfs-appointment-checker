@@ -13,10 +13,35 @@ const EMAIL_RECEIVER = process.env.EMAIL_RECEIVER;
 
 const MAX_RETRIES = 10;
 
-// Email functionality
+// Email functionality for appointment updates
+async function sendAppointmentEmail(appointmentMessage) {
+    try {
+        const transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                user: EMAIL_SENDER,
+                pass: EMAIL_SENDER_PASS
+            }
+        });
+
+        const mailOptions = {
+            from: EMAIL_SENDER,
+            to: EMAIL_RECEIVER,
+            subject: 'VFS Appointment Status Update',
+            text: `VFS Appointment Check Results:\n\n${appointmentMessage}\n\nTime: ${new Date().toLocaleString()}\n\nPlease check: https://visa.vfsglobal.com/aus/en/ind/dashboard`
+        };
+
+        await transporter.sendMail(mailOptions);
+        console.log('✅ Appointment status email sent successfully');
+    } catch (error) {
+        console.error('❌ Failed to send appointment email:', error);
+    }
+}
+
+// Original email functionality (keeping for backward compatibility)
 async function sendEmail() {
     try {
-        const transporter = nodemailer.createTransporter({
+        const transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: {
                 user: EMAIL_SENDER,
@@ -140,6 +165,10 @@ async function smartLogin(page) {
                 // Take screenshot after filling form
                 await page.screenshot({ path: `form_filled_${attempt}.png`, fullPage: true });
                 
+                // Wait a bit before clicking sign in to allow form to settle
+                console.log('⏳ Waiting for form to settle before clicking Sign In...');
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
                 // Click the Sign In button
                 console.log('🔘 Looking for Sign In button...');
                 try {
@@ -156,8 +185,9 @@ async function smartLogin(page) {
                     // Take screenshot after clicking
                     await page.screenshot({ path: `after_signin_click_${attempt}.png`, fullPage: true });
                     
-                    // Wait for login to process and redirect
-                    console.log('⏳ Waiting for login to process...');
+                    // Wait longer after clicking sign in to see the dashboard loading
+                    console.log('⏳ Waiting for login to process and dashboard to load...');
+                    await new Promise(resolve => setTimeout(resolve, 5000));
                     await page.waitForFunction(
                         () => window.location.href.includes('dashboard') || window.location.href.includes('error') || document.querySelector('.error, .alert-danger'),
                         { timeout: 60000 }
@@ -217,13 +247,27 @@ async function smartLogin(page) {
 
 // Main function
 async function main() {
+    // Detect if running in CI environment
+    const isCI = process.env.CI === 'true';
+    console.log(`🖥️ Running in ${isCI ? 'CI (headless)' : 'local (visible)'} mode`);
+    
     const { browser, page } = await connect({
-        headless: false,
-        args: ["--disable-blink-features=AutomationControlled"],
+        headless: isCI,  // Run headless in CI, visible locally
+        args: [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-accelerated-2d-canvas",
+            "--no-first-run",
+            "--no-zygote",
+            "--single-process", // This can help in CI environments
+            "--disable-gpu"
+        ],
         customConfig: {},
         turnstile: true,
         connectOption: {},
-        disableXvfb: true,
+        disableXvfb: false, // Allow Xvfb in CI
         ignoreAllFlags: false
     });
 
@@ -410,9 +454,110 @@ async function main() {
             return;
         }
         
-        console.log('✅ All dropdown selections completed successfully! Ready for next steps...');
+        console.log('✅ All dropdown selections completed successfully!');
+        
+        // Wait for appointment availability message to appear
+        console.log('⏳ Waiting for appointment availability message...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        // Take screenshot of final result
+        await page.screenshot({ path: `appointment_result.png`, fullPage: true });
+        console.log('📸 Final result screenshot: appointment_result.png');
+        
+        // Check for appointment availability message
+        let appointmentMessage = '';
+        try {
+            // Look for the specific alert div
+            const alertSelector = '.alert.alert-info.border-0.rounded-0.alert-info-blue';
+            const alertElement = await page.$(alertSelector);
+            
+            if (alertElement) {
+                appointmentMessage = await page.evaluate(el => el.textContent.trim(), alertElement);
+                console.log('📋 Appointment message found:', appointmentMessage);
+            } else {
+                // Try alternative selectors for appointment messages
+                const alternativeSelectors = [
+                    '.alert-info',
+                    '.alert',
+                    '[class*="alert"]',
+                    'div:contains("appointment")',
+                    'div:contains("slots")'
+                ];
+                
+                for (const selector of alternativeSelectors) {
+                    try {
+                        const elements = await page.$$(selector);
+                        for (const element of elements) {
+                            const text = await page.evaluate(el => el.textContent.trim(), element);
+                            if (text.toLowerCase().includes('appointment') || 
+                                text.toLowerCase().includes('slots') || 
+                                text.toLowerCase().includes('available')) {
+                                appointmentMessage = text;
+                                console.log(`📋 Appointment message found with selector ${selector}:`, appointmentMessage);
+                                break;
+                            }
+                        }
+                        if (appointmentMessage) break;
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            }
+        } catch (error) {
+            console.log('⚠️ Could not find appointment message:', error.message);
+        }
+        
+        // If no specific message found, capture general page content about appointments
+        if (!appointmentMessage) {
+            try {
+                const pageText = await page.evaluate(() => document.body.textContent);
+                if (pageText.toLowerCase().includes('no appointment') || 
+                    pageText.toLowerCase().includes('slots') ||
+                    pageText.toLowerCase().includes('available')) {
+                    // Extract relevant portion
+                    const lines = pageText.split('\n');
+                    for (const line of lines) {
+                        if (line.toLowerCase().includes('appointment') || 
+                            line.toLowerCase().includes('slots')) {
+                            appointmentMessage = line.trim();
+                            break;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log('⚠️ Could not extract appointment info from page:', error.message);
+            }
+        }
+        
+        // Send email with appointment status
+        if (appointmentMessage) {
+            console.log('📧 Sending email with appointment status...');
+            await sendAppointmentEmail(appointmentMessage);
+        } else {
+            appointmentMessage = 'VFS appointment check completed - please check the screenshots for details.';
+            console.log('📧 Sending general notification email...');
+            await sendAppointmentEmail(appointmentMessage);
+        }
+        
+        console.log('✅ VFS appointment check completed successfully!');
+        
+        // Keep browser open for a bit to see the final result (only in local mode)
+        if (!isCI) {
+            console.log('⏳ Keeping browser open for 10 seconds to view final result...');
+            await new Promise(resolve => setTimeout(resolve, 10000));
+        } else {
+            console.log('🤖 CI mode - closing browser immediately');
+        }
+
     } catch (error) {
         console.error('❌ Error in main function:', error);
+        // Take error screenshot
+        try {
+            await page.screenshot({ path: `error_final.png`, fullPage: true });
+            console.log('📸 Error screenshot saved: error_final.png');
+        } catch (screenshotError) {
+            console.log('Failed to take error screenshot');
+        }
     } finally {
         await browser.close();
     }
