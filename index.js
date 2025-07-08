@@ -251,33 +251,75 @@ async function main() {
     const isCI = process.env.CI === 'true';
     console.log(`🖥️ Running in ${isCI ? 'CI (headless)' : 'local (visible)'} mode`);
     
-    const { browser, page } = await connect({
-        headless: isCI,  // Run headless in CI, visible locally
-        args: [
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-accelerated-2d-canvas",
-            "--no-first-run",
-            "--no-zygote",
-            "--single-process", // This can help in CI environments
-            "--disable-gpu"
-        ],
-        customConfig: {},
-        turnstile: true,
-        connectOption: {},
-        disableXvfb: false, // Allow Xvfb in CI
-        ignoreAllFlags: false
-    });
-
+    let browser, page;
+    
     try {
+        console.log('🚀 Initializing browser connection...');
+        
+        // Retry browser connection with exponential backoff
+        let connectionAttempts = 0;
+        const maxConnectionAttempts = 3;
+        
+        while (connectionAttempts < maxConnectionAttempts) {
+            try {
+                connectionAttempts++;
+                console.log(`🔄 Browser connection attempt ${connectionAttempts}/${maxConnectionAttempts}...`);
+                
+                const connection = await connect({
+                    headless: isCI,  // Run headless in CI, visible locally
+                    args: [
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-accelerated-2d-canvas",
+                        "--no-first-run",
+                        "--no-zygote",
+                        "--single-process", // This can help in CI environments
+                        "--disable-gpu"
+                    ],
+                    customConfig: {},
+                    turnstile: true,
+                    connectOption: {},
+                    disableXvfb: false, // Allow Xvfb in CI
+                    ignoreAllFlags: false
+                });
+                
+                browser = connection.browser;
+                page = connection.page;
+                
+                console.log('✅ Browser connection established');
+                break;
+                
+            } catch (error) {
+                console.log(`❌ Browser connection attempt ${connectionAttempts} failed:`, error.message);
+                
+                if (connectionAttempts >= maxConnectionAttempts) {
+                    throw new Error(`Failed to establish browser connection after ${maxConnectionAttempts} attempts: ${error.message}`);
+                }
+                
+                // Wait before retry with exponential backoff
+                const waitTime = Math.pow(2, connectionAttempts) * 1000;
+                console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+        }
+        
+        // Wait for the page to be fully ready before proceeding
+        console.log('⏳ Waiting for page to be ready...');
+        await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 });
+        
+        // Additional wait to ensure frame is ready
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
         // Set user agent
+        console.log('🔧 Setting user agent...');
         await page.setUserAgent(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
             "AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/116.0.0.0 Safari/537.36"
         );
+        console.log('✅ User agent set');
 
         if (!(await smartLogin(page))) {
             console.log('❌ Failed to complete login process after retries.');
@@ -553,13 +595,17 @@ async function main() {
         console.error('❌ Error in main function:', error);
         // Take error screenshot
         try {
-            await page.screenshot({ path: `error_final.png`, fullPage: true });
-            console.log('📸 Error screenshot saved: error_final.png');
+            if (page) {
+                await page.screenshot({ path: `error_final.png`, fullPage: true });
+                console.log('📸 Error screenshot saved: error_final.png');
+            }
         } catch (screenshotError) {
             console.log('Failed to take error screenshot');
         }
     } finally {
-        await browser.close();
+        if (browser) {
+            await browser.close();
+        }
     }
 }
 
