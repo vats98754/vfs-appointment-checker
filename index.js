@@ -252,139 +252,165 @@ async function main() {
         await page.screenshot({ path: `dashboard_loaded.png`, fullPage: true });
         console.log('📸 Dashboard screenshot saved: dashboard_loaded.png');
 
-        // Click "Start New Booking" button
+        // Click "Start New Booking" button with improved retry logic
         console.log('🔘 Looking for "Start New Booking" button...');
-        try {
-            // Wait for the specific Material Design "Start New Booking" button
-            await page.waitForSelector('button.mdc-button--raised .mdc-button__label', { timeout: 15000 });
-            
-            // Take screenshot before clicking
-            await page.screenshot({ path: `before_start_booking_click.png`, fullPage: true });
-            console.log('📸 Screenshot before clicking Start New Booking: before_start_booking_click.png');
-            
-            // Click the "Start New Booking" button
-            await page.click('button.mdc-button--raised .mdc-button__label');
-            console.log('✅ Clicked "Start New Booking" button');
-            
-            // Take screenshot after clicking
-            await page.screenshot({ path: `after_start_booking_click.png`, fullPage: true });
-            console.log('📸 Screenshot after clicking Start New Booking: after_start_booking_click.png');
-            
-            // Wait for navigation to application detail page with retries
-            console.log('⏳ Waiting for navigation to application detail page...');
-            let navigationSuccess = false;
-            
-            for (let navAttempt = 1; navAttempt <= 3; navAttempt++) {
-                try {
-                    console.log(`🔄 Navigation attempt ${navAttempt}/3...`);
-                    
-                    await page.waitForFunction(
-                        () => window.location.href.includes('application-detail') || 
-                              window.location.href.includes('booking') ||
-                              document.querySelector('mat-select[formcontrolname="centerCode"]'),
-                        { timeout: 20000 }
-                    );
-                    
+        let bookingNavigationSuccess = false;
+        
+        for (let bookingAttempt = 1; bookingAttempt <= 5; bookingAttempt++) {
+            try {
+                console.log(`🔄 Start New Booking attempt ${bookingAttempt}/5...`);
+                
+                // Wait for button to be available
+                await page.waitForSelector('button.mdc-button--raised .mdc-button__label', { timeout: 15000 });
+                
+                // Take screenshot before clicking
+                await page.screenshot({ path: `booking_attempt_${bookingAttempt}.png`, fullPage: true });
+                
+                // Click the "Start New Booking" button
+                await page.click('button.mdc-button--raised .mdc-button__label');
+                console.log(`✅ Clicked "Start New Booking" button (attempt ${bookingAttempt})`);
+                
+                // Wait for navigation and check multiple conditions
+                console.log('⏳ Waiting for navigation...');
+                let navSuccess = false;
+                
+                for (let navCheck = 1; navCheck <= 20; navCheck++) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
                     const currentUrl = page.url();
-                    console.log(`📍 Current URL after wait: ${currentUrl}`);
                     
-                    if (currentUrl.includes('application-detail') || currentUrl.includes('booking')) {
-                        navigationSuccess = true;
+                    // Check URL change
+                    if (!currentUrl.includes('/dashboard') || 
+                        currentUrl.includes('application-detail') || 
+                        currentUrl.includes('booking')) {
+                        console.log(`✅ Navigation detected via URL: ${currentUrl}`);
+                        navSuccess = true;
                         break;
-                    } else {
-                        console.log(`⚠️ Navigation attempt ${navAttempt} - unexpected URL: ${currentUrl}`);
-                        await page.screenshot({ path: `nav_attempt_${navAttempt}.png`, fullPage: true });
-                        
-                        if (navAttempt < 3) {
-                            console.log('🔄 Retrying navigation...');
-                            await new Promise(resolve => setTimeout(resolve, 3000));
-                        }
                     }
                     
-                } catch (error) {
-                    console.log(`⚠️ Navigation attempt ${navAttempt} failed: ${error.message}`);
-                    await page.screenshot({ path: `nav_error_${navAttempt}.png`, fullPage: true });
+                    // Check for application form elements
+                    try {
+                        const centerDropdown = await page.$('mat-select[formcontrolname="centerCode"]');
+                        if (centerDropdown) {
+                            console.log('✅ Application form detected');
+                            navSuccess = true;
+                            break;
+                        }
+                    } catch (e) {}
                     
-                    if (navAttempt < 3) {
-                        console.log('🔄 Retrying navigation...');
+                    console.log(`⏳ Navigation check ${navCheck}/20...`);
+                }
+                
+                if (navSuccess) {
+                    bookingNavigationSuccess = true;
+                    break;
+                }
+                
+                console.log(`⚠️ Navigation failed on attempt ${bookingAttempt}`);
+                
+            } catch (error) {
+                console.log(`❌ Booking attempt ${bookingAttempt} failed: ${error.message}`);
+                await page.screenshot({ path: `booking_error_${bookingAttempt}.png`, fullPage: true });
+            }
+            
+            if (bookingAttempt < 5) {
+                console.log('⏳ Waiting before retry...');
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
+        
+        if (!bookingNavigationSuccess) {
+            console.log('❌ Failed to navigate after Start New Booking');
+            return;
+        }
+        
+        // Additional stabilization wait
+        console.log('⏳ Waiting for page to stabilize...');
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        
+        // Take final screenshot
+        await page.screenshot({ path: `application_page_ready.png`, fullPage: true });
+        const finalUrl = page.url();
+        console.log(`📍 Ready on URL: ${finalUrl}`);
+        
+        // Robust dropdown selection sequence
+        async function selectDropdownOption(dropdownSelector, optionSelector, stepName, maxAttempts = 5) {
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    console.log(`🔄 ${stepName} - Attempt ${attempt}/${maxAttempts}`);
+                    
+                    // Wait for dropdown to be available
+                    await page.waitForSelector(dropdownSelector, { timeout: 20000 });
+                    console.log(`✅ Found ${stepName} dropdown`);
+                    
+                    // Take screenshot before
+                    await page.screenshot({ path: `${stepName.toLowerCase().replace(/\s+/g, '_')}_before_${attempt}.png`, fullPage: true });
+                    
+                    // Click dropdown
+                    await page.click(dropdownSelector);
+                    console.log(`✅ Clicked ${stepName} dropdown`);
+                    
+                    // Wait for dropdown to open
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    
+                    // Wait for and click option
+                    await page.waitForSelector(optionSelector, { timeout: 15000 });
+                    await page.click(optionSelector);
+                    console.log(`✅ Selected ${stepName} option`);
+                    
+                    // Wait for form to update
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    
+                    // Take screenshot after
+                    await page.screenshot({ path: `${stepName.toLowerCase().replace(/\s+/g, '_')}_completed_${attempt}.png`, fullPage: true });
+                    
+                    return true;
+                    
+                } catch (error) {
+                    console.log(`❌ ${stepName} attempt ${attempt} failed: ${error.message}`);
+                    await page.screenshot({ path: `${stepName.toLowerCase().replace(/\s+/g, '_')}_error_${attempt}.png`, fullPage: true });
+                    
+                    if (attempt < maxAttempts) {
                         await new Promise(resolve => setTimeout(resolve, 3000));
                     }
                 }
             }
-            
-            if (!navigationSuccess) {
-                console.log('❌ Failed to navigate to application detail page after 3 attempts');
-                await page.screenshot({ path: `navigation_failed.png`, fullPage: true });
-                return;
-            }
-            
-            // Take screenshot of application detail page
-            await page.screenshot({ path: `application_detail_loaded.png`, fullPage: true });
-            console.log('📸 Application detail page screenshot: application_detail_loaded.png');
-            
-            const currentUrl = page.url();
-            console.log(`📍 Current URL: ${currentUrl}`);
-            
-            if (currentUrl.includes('application-detail')) {
-                console.log('✅ Successfully navigated to application detail page!');
-                console.log('🎯 Ready for next instructions on the application detail page...');
-                
-                // Handle Application Centre selection
-                console.log('🔽 Selecting Application Centre...');
-                try {
-                    // Wait for the application center dropdown to be available
-                    await page.waitForSelector('mat-select[formcontrolname="centerCode"]', { timeout: 15000 });
-                    
-                    // Take screenshot before clicking dropdown
-                    await page.screenshot({ path: `before_center_dropdown_click.png`, fullPage: true });
-                    console.log('📸 Screenshot before clicking center dropdown: before_center_dropdown_click.png');
-                    
-                    // Click the application center dropdown
-                    await page.click('mat-select[formcontrolname="centerCode"]');
-                    console.log('✅ Clicked application center dropdown');
-                    
-                    // Wait a moment for dropdown to open
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    
-                    // Take screenshot after dropdown opens
-                    await page.screenshot({ path: `center_dropdown_opened.png`, fullPage: true });
-                    console.log('📸 Screenshot with dropdown opened: center_dropdown_opened.png');
-                    
-                    // Wait for and click the Melbourne option
-                    await page.waitForSelector('mat-option[id="INME"]', { timeout: 10000 });
-                    await page.click('mat-option[id="INME"]');
-                    console.log('✅ Selected "India Passport and Visa Services Center-Melbourne"');
-                    
-                    // Wait for dropdown to close
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    
-                    // Take screenshot after selection
-                    await page.screenshot({ path: `center_selected.png`, fullPage: true });
-                    console.log('📸 Screenshot after center selection: center_selected.png');
-                    
-                } catch (error) {
-                    console.log(`❌ Application center selection failed: ${error.message}`);
-                    await page.screenshot({ path: `center_selection_error.png`, fullPage: true });
-                    console.log('📸 Error screenshot: center_selection_error.png');
-                    return;
-                }
-                
-            } else {
-                console.log('⚠️ Unexpected page - not on application detail');
-                await page.screenshot({ path: `unexpected_page.png`, fullPage: true });
-                console.log('📸 Unexpected page screenshot: unexpected_page.png');
-            }
-            
-        } catch (error) {
-            console.log(`❌ Start New Booking button click failed: ${error.message}`);
-            await page.screenshot({ path: `start_booking_error.png`, fullPage: true });
-            console.log('📸 Error screenshot: start_booking_error.png');
+            return false;
+        }
+        
+        // Execute all dropdown selections
+        console.log('🔽 Starting dropdown selection sequence...');
+        
+        // Step 1 & 2: Application Centre
+        if (!await selectDropdownOption(
+            'mat-select[formcontrolname="centerCode"]',
+            'mat-option[id="INME"]',
+            'Application Centre Selection'
+        )) {
+            console.log('❌ Failed to select Application Centre');
             return;
         }
-
-        // TODO: Wait for further instructions on the application detail page
-        console.log('✅ Reached application detail page. Awaiting next instructions...');
-
+        
+        // Step 3 & 4: Appointment Category
+        if (!await selectDropdownOption(
+            'mat-select[formcontrolname="selectedSubvisaCategory"]',
+            'mat-option[id="Passport"]',
+            'Appointment Category Selection'
+        )) {
+            console.log('❌ Failed to select Appointment Category');
+            return;
+        }
+        
+        // Step 5 & 6: Sub-category
+        if (!await selectDropdownOption(
+            'mat-select[formcontrolname="visaCategoryCode"]',
+            'mat-option[id="PassportADULT"]',
+            'Sub Category Selection'
+        )) {
+            console.log('❌ Failed to select Sub-category');
+            return;
+        }
+        
+        console.log('✅ All dropdown selections completed successfully! Ready for next steps...');
     } catch (error) {
         console.error('❌ Error in main function:', error);
     } finally {
