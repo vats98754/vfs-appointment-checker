@@ -11,6 +11,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'  # Fetch Turnstile-Solver submodule if needed
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
@@ -18,25 +20,67 @@ jobs:
         node-version: '20'
         cache: 'npm'
 
-    - name: Install Node.js dependencies
-      run: |
-        npm install
+    - name: Setup Python for Turnstile Solver (optional)
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
 
-    - name: Install system dependencies for Puppeteer
+    - name: Install system dependencies for puppeteer-real-browser
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          libnss3-dev \
-          libatk-bridge2.0-dev \
-          libdrm-dev \
-          libxcomposite-dev \
-          libxdamage-dev \
-          libxrandr-dev \
-          libgbm-dev \
-          libxss-dev \
-          libasound2-dev \
-          libatspi2.0-dev \
-          libgtk-3-dev
+          gconf-service \
+          libasound2 \
+          libatk1.0-0 \
+          libc6 \
+          libcairo2 \
+          libcups2 \
+          libdbus-1-3 \
+          libexpat1 \
+          libfontconfig1 \
+          libgbm1 \
+          libgdk-pixbuf2.0-0 \
+          libglib2.0-0 \
+          libgtk-3-0 \
+          libnspr4 \
+          libpango-1.0-0 \
+          libpangocairo-1.0-0 \
+          libstdc++6 \
+          libx11-6 \
+          libx11-xcb1 \
+          libxcb1 \
+          libxcomposite1 \
+          libxcursor1 \
+          libxdamage1 \
+          libxext6 \
+          libxfixes3 \
+          libxi6 \
+          libxrandr2 \
+          libxrender1 \
+          libxss1 \
+          libxtst6 \
+          ca-certificates \
+          fonts-liberation \
+          libnss3 \
+          lsb-release \
+          xdg-utils \
+          wget \
+          xvfb
+
+    - name: Install Node.js dependencies
+      run: npm install
+
+    - name: Setup Chrome
+      run: |
+        # Install Google Chrome stable
+        wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor | sudo tee /usr/share/keyrings/google-chrome.gpg > /dev/null
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
+        
+        # Verify Chrome installation
+        google-chrome-stable --version
+        which google-chrome-stable
 
     - name: Run VFS appointment check
       env:
@@ -46,7 +90,35 @@ jobs:
         EMAIL_SENDER_PASS: ${{ secrets.EMAIL_SENDER_PASS }}
         EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
         CI: true
-      run: node index.js
+        DISPLAY: :99
+        PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
+        PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: true
+        NODE_OPTIONS: "--max-old-space-size=4096"
+      run: |
+        # Start virtual display for puppeteer-real-browser
+        echo "Starting Xvfb..."
+        Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+        sleep 5
+        
+        # Verify display setup
+        echo "Display: $DISPLAY"
+        echo "Puppeteer executable path: $PUPPETEER_EXECUTABLE_PATH"
+        
+        # Modify index.js to work in CI without requiring the local API
+        node -e '
+          const fs = require("fs");
+          const code = fs.readFileSync("index.js", "utf8");
+          const modified = code.replace(
+            /async function solveTurnstileWithAPI\([^)]+\) {[^}]+}/, 
+            "async function solveTurnstileWithAPI(pageUrl, siteKey) { console.log(\"🔄 CI environment - bypassing Turnstile solver API\"); return null; }"
+          );
+          fs.writeFileSync("index.js", modified);
+          console.log("✅ Modified index.js for CI environment");
+        '
+        
+        # Run the appointment check
+        echo "Starting appointment check..."
+        node --unhandled-rejections=strict index.js
 
     - name: Upload screenshots
       if: always()

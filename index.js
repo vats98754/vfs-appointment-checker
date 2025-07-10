@@ -279,43 +279,31 @@ async function main() {
                 console.log(`🔄 Browser connection attempt ${connectionAttempts}/${maxConnectionAttempts}...`);
                 
                 const connection = await connect({
-                    headless: isCI ? 'new' : false,  // Use new headless mode in CI, visible locally
+                    headless: isCI,  // Keep boolean headless for puppeteer-real-browser
                     args: [
-                        "--disable-blink-features=AutomationControlled",
                         "--no-sandbox",
                         "--disable-setuid-sandbox",
                         "--disable-dev-shm-usage",
-                        "--disable-accelerated-2d-canvas",
-                        "--no-first-run",
-                        "--no-zygote",
                         "--disable-gpu",
-                        "--disable-gpu-sandbox",
-                        "--disable-software-rasterizer",
-                        "--disable-background-timer-throttling",
-                        "--disable-backgrounding-occluded-windows",
-                        "--disable-renderer-backgrounding",
-                        "--disable-features=TranslateUI",
-                        "--disable-ipc-flooding-protection",
-                        "--disable-extensions",
-                        "--disable-default-apps",
-                        "--disable-sync",
-                        "--disable-translate",
-                        "--hide-scrollbars",
-                        "--mute-audio",
-                        "--no-default-browser-check",
-                        "--no-pings",
                         "--disable-web-security",
-                        "--disable-features=VizDisplayCompositor",
+                        "--disable-extensions",
+                        "--no-first-run",
                         ...(isCI ? [
-                            "--single-process",
-                            "--memory-pressure-off",
-                            "--max_old_space_size=4096"
+                            "--disable-background-timer-throttling",
+                            "--disable-backgrounding-occluded-windows",
+                            "--disable-renderer-backgrounding",
+                            "--disable-features=TranslateUI,VizDisplayCompositor",
+                            "--memory-pressure-off"
                         ] : [])
                     ],
-                    customConfig: {},
+                    customConfig: {
+                        ...(process.env.PUPPETEER_EXECUTABLE_PATH ? {
+                            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
+                        } : {})
+                    },
                     turnstile: true,
                     connectOption: {
-                        timeout: 120000,  // Increase timeout for CI
+                        timeout: 180000,  // 3 minutes timeout for CI
                         ...(isCI ? {
                             defaultViewport: {
                                 width: 1920,
@@ -323,7 +311,7 @@ async function main() {
                             }
                         } : {})
                     },
-                    disableXvfb: false,
+                    disableXvfb: false,  // Let puppeteer-real-browser handle Xvfb
                     ignoreAllFlags: false
                 });
                 
@@ -341,7 +329,7 @@ async function main() {
                     console.log('🔄 Trying simplified CI configuration as final attempt...');
                     try {
                         const connection = await connect({
-                            headless: 'new',
+                            headless: true,  // Boolean for puppeteer-real-browser
                             args: [
                                 "--no-sandbox",
                                 "--disable-setuid-sandbox",
@@ -349,7 +337,11 @@ async function main() {
                                 "--disable-gpu",
                                 "--single-process"
                             ],
-                            customConfig: {},
+                            customConfig: {
+                                ...(process.env.PUPPETEER_EXECUTABLE_PATH ? {
+                                    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
+                                } : {})
+                            },
                             turnstile: false,  // Disable turnstile for this attempt
                             connectOption: {
                                 timeout: 60000
