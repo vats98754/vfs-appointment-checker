@@ -65,6 +65,12 @@ async function sendEmail() {
 
 // Turnstile solver API integration
 async function solveTurnstileWithAPI(pageUrl, siteKey) {
+    // Check if we're running in CI environment
+    if (process.env.CI === 'true') {
+        console.log('🤖 Running in CI environment - bypassing Turnstile solver API');
+        return null;
+    }
+
     return new Promise((resolve, reject) => {
         const apiUrl = `http://127.0.0.1:5000/turnstile?url=${pageUrl}&sitekey=${siteKey}`;
         console.log(`📡 Sending GET request to Turnstile Solver API: ${apiUrl}`);
@@ -265,7 +271,7 @@ async function main() {
         
         // Retry browser connection with exponential backoff
         let connectionAttempts = 0;
-        const maxConnectionAttempts = 5;  // Increased for CI reliability
+        const maxConnectionAttempts = isCI ? 8 : 5;  // More retries for CI environment
         
         // Add initial delay in CI to let system settle
         if (isCI) {

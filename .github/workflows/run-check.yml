@@ -19,6 +19,14 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
+        
+    - name: Increase system limits
+      run: |
+        # Increase file limit
+        ulimit -n 65535 || echo "Failed to increase file limit - proceeding anyway"
+        # Display limits
+        echo "Current file limits:"
+        ulimit -a
 
     - name: Setup Python for Turnstile Solver (optional)
       uses: actions/setup-python@v4
@@ -29,8 +37,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          gconf-service \
-          libasound2 \
           libatk1.0-0 \
           libc6 \
           libcairo2 \
@@ -99,6 +105,9 @@ jobs:
         echo "Starting Xvfb..."
         Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
         sleep 5
+        
+        # Verify Xvfb is running
+        ps aux | grep Xvfb
         
         # Verify display setup
         echo "Display: $DISPLAY"
