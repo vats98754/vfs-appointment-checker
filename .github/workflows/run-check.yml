@@ -113,16 +113,16 @@ jobs:
         echo "Display: $DISPLAY"
         echo "Puppeteer executable path: $PUPPETEER_EXECUTABLE_PATH"
         
-        # Modify index.js to work in CI without requiring the local API
+        # We don't need to modify index.js anymore since it already has CI detection
+        # Just verify the file exists and is valid JavaScript
         node -e '
-          const fs = require("fs");
-          const code = fs.readFileSync("index.js", "utf8");
-          const modified = code.replace(
-            /async function solveTurnstileWithAPI\([^)]+\) {[^}]+}/, 
-            "async function solveTurnstileWithAPI(pageUrl, siteKey) { console.log(\"🔄 CI environment - bypassing Turnstile solver API\"); return null; }"
-          );
-          fs.writeFileSync("index.js", modified);
-          console.log("✅ Modified index.js for CI environment");
+          try {
+            require("./index.js");
+            console.log("✅ index.js is syntactically valid");
+          } catch (error) {
+            console.error("❌ Error with index.js:", error);
+            process.exit(1);
+          }
         '
         
         # Run the appointment check
